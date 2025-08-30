@@ -1,66 +1,51 @@
 # engine.py
+
 import chess
 import chess.engine
 import logging
-from config import STOCKFISH_PATH, STOCKFISH_THINK_TIME, STOCKFISH_DEPTH
+from config import STOCKFISH_PATH, STOCKFISH_THINK_TIME
 
-ENGINE = None
+class Engine:
+    def __init__(self):
+        self.engine = None
+    
+    def startup(self):
+        """Initializes the Stockfish engine."""
+        try:
+            self.engine = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
+            logging.info("Stockfish engine initialized successfully.")
+            return True
+        except Exception as e:
+            logging.error(f"Failed to initialize Stockfish: {e}")
+            return False
 
-def init_stockfish():
-    """
-    Initializes the Stockfish engine process.
-    Returns True on success, False on failure.
-    """
-    global ENGINE
-    try:
-        ENGINE = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
-        logging.info(f"Stockfish engine initialized successfully from: {STOCKFISH_PATH}")
-        return True
-    except FileNotFoundError:
-        logging.error(f"Stockfish executable not found at: {STOCKFISH_PATH}")
-        logging.error("Please update STOCKFISH_PATH in config.py")
-        return False
-
-def get_best_move(fen):
-    """
-    Gets the best move and evaluation from Stockfish for a given FEN.
-    """
-    if ENGINE is None:
-        logging.error("Stockfish engine is not initialized.")
-        return None, None
-
-    try:
-        board = chess.Board(fen)
-        # You might need to determine whose turn it is from board state changes
-        # For now, we set it based on the FEN, but this can be improved.
-        if " b " in fen:
-            board.turn = chess.BLACK
-        else:
-            board.turn = chess.WHITE
-
-        result = ENGINE.analyse(board, chess.engine.Limit(time=STOCKFISH_THINK_TIME, depth=STOCKFISH_DEPTH))
-        
-        best_move = result['pv'][0]
-        score = result['score'].relative
-
-        eval_str = ""
-        if score.is_mate():
-            eval_str = f"Mate in {score.mate()}"
-        else:
-            cp = score.score() / 100.0
-            eval_str = f"{cp:+.2f}"
+    def get_best_move(self, fen_pieces, turn_char):
+        """Gets the best move from a FEN and turn."""
+        try:
+            # For stateless analysis, we assume default castling rights.
+            full_fen = f"{fen_pieces} {turn_char} KQkq - 0 1"
+            board = chess.Board(full_fen)
             
-        logging.info(f"Engine analysis: Best move {best_move}, Eval {eval_str}")
-        return best_move, eval_str
-        
-    except Exception as e:
-        logging.error(f"An error occurred during engine analysis: {e}")
-        return None, None
+            limit = chess.engine.Limit(time=STOCKFISH_THINK_TIME)
+            info = self.engine.analyse(board, limit, multipv=3)
 
-def close_stockfish():
-    """
-    Closes the Stockfish engine process.
-    """
-    if ENGINE:
-        ENGINE.quit()
-        logging.info("Stockfish engine closed.")
+            if not info: return "No moves found", ""
+            
+            top_moves = []
+            for item in info:
+                move = item.get('pv', [None])[0]
+                if move is None: continue
+                score = item['score'].pov(board.turn)
+                eval_str = f"Mate in {score.mate()}" if score.is_mate() else f"{score.score() / 100.0:+.2f}"
+                top_moves.append(f"{move.uci()} (Eval: {eval_str})")
+            
+            return top_moves[0].split(' ')[0], " | ".join(top_moves)
+        except Exception as e:
+            logging.error(f"Engine analysis failed: {e}")
+            return "Analysis Error", ""
+
+    def shutdown(self):
+        """Closes the Stockfish engine process."""
+        if self.engine:
+            self.engine.quit()
+            logging.info("Stockfish engine closed.")
