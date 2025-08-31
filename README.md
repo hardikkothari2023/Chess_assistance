@@ -1,24 +1,37 @@
-# ♟️ Real-Time Chess Assistant
+# ♟️ All-in-One Chess Bot  
 
-Analyze your online chess games in real-time using screen recognition and the Stockfish engine.
-
-This Python-based assistant continuously watches a selected portion of your screen, recognizes the state of the chessboard, and uses the powerful Stockfish engine to suggest the best possible move. It is designed to be fully automatic after an initial setup, intelligently tracking the game state move by move.
-
-
+An advanced **real-time chess assistant** that helps you play smarter by analyzing the chessboard directly from your screen.  
+The bot captures your chessboard, identifies all pieces using image recognition, and suggests the **best possible move**.  
 
 ---
 
-## ✨ Features
-
-* **Real-Time Analysis:** Automatically detects when a move is made and provides instant feedback.
-* **Screen-Based Recognition:** Works with any online chess platform (like Chess.com or Lichess) by looking at your screen. No API needed.
-* **Powerful Engine:** Integrates with the world-class Stockfish chess engine for grandmaster-level analysis.
-* **Intelligent Game Tracking:** Keeps an internal model of the game, correctly tracking the turn, castling rights, and other rules.
-* **Robust and Self-Correcting:** Includes failsafes to handle bad screen reads and re-synchronize with the game if it gets confused.
-* **Customizable:** Works with any piece and board theme by using user-provided template images. Displays the top 3 moves with evaluations.
+## 🚀 Features  
+- 📸 **Real-time Board Detection** – Automatically detects the chessboard from your screen.  
+- ♞ **Piece Recognition** – Identifies every piece using pre-trained templates (works for both black and white).  
+- 🤖 **Best Move Recommendation** – Suggests the strongest move using a chess engine.  
+- 🖥️ **Cross-Platform** – Works on Windows, Linux, and macOS.  
+- 🎥 **Demo Support** – You can attach a video walkthrough of the bot in action.  
 
 ---
 
-## 📂 Project Structure
+## 🛠️ Tech Stack  
+- **Python** (Core Language)  
+- **OpenCV** – Image recognition & board detection  
+- **Pillow (PIL)** – Image processing  
+- **Stockfish** – Chess engine for best-move calculation  
+- **PyAutoGUI** – For capturing screen input  
+- **Base64 Encoded Templates** – Stores chess pieces securely without external files  
 
-The project uses a simple, single-script structure supported by a few key assets.
+---
+
+## 📂 Project Structure  
+
+```bash
+📦 All-in-One-Chess-Bot
+├── pieces/                # Base64 encoded chess pieces (auto-generated at runtime)
+├── extract_pieces.py      # Extracts and saves templates from Base64
+├── detect_board.py        # Detects and processes the chessboard
+├── recognize_pieces.py    # Identifies pieces on board
+├── chess_engine.py        # Integrates with Stockfish for move suggestion
+├── all_in_one_bot.py      # Main entry point (run this file)
+└── README.md              # Project documentation
