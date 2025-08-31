@@ -1,4 +1,4 @@
-# assistant.py - The Final, Dynamic, and Robust Folder-Based Version
+# assistant.py - The Final Version with First-Move Suggestion
 
 import pyautogui
 import cv2
@@ -12,19 +12,19 @@ import logging
 # -----------------------------------------------------------------------------------
 # --- CONFIGURATION ---
 # -----------------------------------------------------------------------------------
-# THIS MUST BE THE SIMPLE PATH to the .exe file in your project folder.
+# This path MUST be simple, pointing to the .exe file in your project folder.
 STOCKFISH_PATH = r"C:\Users\HARDIK\OneDrive\Desktop\Chess_assistance\stockfish-windows-x86-64-avx2\stockfish\stockfish-windows-x86-64-avx2.exe"
 
-# This MUST be the path to your folder of 12 transparent PNG images.
+# This path MUST point to your folder of 12 transparent PNG images.
 PIECE_THEME = 'pieces/my_pieces/'
 
-# THIS IS THE MOST IMPORTANT SETTING TO TUNE.
+# This is the most important setting to tune.
 # If it misses pieces, LOWER this value (e.g., to 0.65).
 # If it sees pieces that aren't there, RAISE this value (e.g., to 0.75).
-CONFIDENCE_THRESHOLD = 0.32
+CONFIDENCE_THRESHOLD = 0.3
 
 CAPTURE_INTERVAL = 1.5
-STOCKFISH_THINK_TIME = 1.0
+STOCKFISH_THINK_TIME = 5.0
 # -----------------------------------------------------------------------------------
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s -[%(levelname)s]- %(message)s')
@@ -36,12 +36,15 @@ class ChessAssistant:
         self.engine = None
         self.piece_templates = {}
         self.template_masks = {}
+        self.internal_board = chess.Board()
         self.is_playing_as_black = False
 
     def setup(self):
+        """Runs all necessary setup functions."""
         return self._load_templates() and self._init_stockfish() and self._select_board_region()
             
     def _load_templates(self):
+        """Loads piece templates and their transparency masks."""
         theme_path = self.config['PIECE_THEME']
         logging.info(f"Loading piece templates from: {theme_path}")
         try:
@@ -65,15 +68,17 @@ class ChessAssistant:
             return False
 
     def _init_stockfish(self):
+        """Initializes the Stockfish engine."""
         try:
             self.engine = chess.engine.SimpleEngine.popen_uci(self.config['STOCKFISH_PATH'])
-            logging.info(f"Stockfish engine initialized successfully with path: {self.config['STOCKFISH_PATH']}")
+            logging.info("Stockfish engine initialized successfully.")
             return True
         except Exception as e:
             logging.error(f"Failed to initialize Stockfish: {e}")
             return False
 
     def _select_board_region(self):
+        """Lets the user select the board region."""
         logging.info("A window will appear. Draw a TIGHT rectangle on the 8x8 squares only, INSIDE the coordinates.")
         try:
             screenshot = pyautogui.screenshot()
@@ -91,6 +96,7 @@ class ChessAssistant:
             return False
 
     def _identify_piece(self, square_img):
+        """Identifies a piece using masked template matching."""
         best_match_piece = None
         max_score = self.config['CONFIDENCE_THRESHOLD']
         h, w, _ = square_img.shape
@@ -106,6 +112,7 @@ class ChessAssistant:
         return best_match_piece
 
     def _image_to_fen_pieces(self):
+        """Captures the board and returns the piece placement part of the FEN."""
         if not self.board_region: return None
         screenshot = pyautogui.screenshot(region=self.board_region)
         board_img = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
@@ -130,62 +137,102 @@ class ChessAssistant:
         return '/'.join(row[::-1] for row in fen.split('/')[::-1]) if self.is_playing_as_black else fen
     
     def _validate_fen(self, fen_pieces):
+        """Checks if a FEN has both kings."""
         return fen_pieces.count('K') == 1 and fen_pieces.count('k') == 1
 
-    def _get_best_move(self, fen_pieces, turn_char):
+    def _find_played_move(self, new_fen_pieces):
+        """Finds the legal move that transitions the internal board to the new FEN."""
+        for move in self.internal_board.legal_moves:
+            self.internal_board.push(move)
+            if self.internal_board.fen().split(' ')[0] == new_fen_pieces:
+                self.internal_board.pop()
+                return move
+            self.internal_board.pop()
+        return None
+    
+    def _get_best_move(self):
+        """Gets the best move for the current internal board state."""
         try:
-            # For stateless analysis, we assume default castling rights.
-            full_fen = f"{fen_pieces} {turn_char} KQkq - 0 1"
-            board = chess.Board(full_fen)
             limit = chess.engine.Limit(time=self.config['STOCKFISH_THINK_TIME'])
-            info = self.engine.analyse(board, limit, multipv=3)
-            if not info: return "No moves found", ""
+            info = self.engine.analyse(self.internal_board, limit, multipv=3)
+            if not info: return None, "No moves found"
             top_moves = []
             for item in info:
                 move = item.get('pv', [None])[0]
                 if move is None: continue
-                score = item['score'].pov(board.turn)
+                score = item['score'].pov(self.internal_board.turn)
                 eval_str = f"Mate in {score.mate()}" if score.is_mate() else f"{score.score() / 100.0:+.2f}"
                 top_moves.append(f"{move.uci()} (Eval: {eval_str})")
             return top_moves[0].split(' ')[0], " | ".join(top_moves)
         except Exception as e:
             logging.error(f"Engine analysis failed: {e}")
-            return "Analysis Error", ""
+            return None, "Analysis Error"
 
     def run(self):
+        """The main loop of the chess assistant."""
         if not self.setup():
             input("Initialization failed. Press Enter to exit.")
             return
-            
-        self.is_playing_as_black = 'y' in input("Are you playing as Black (board is flipped)? [y/N]: ").lower()
-        
-        print("\n✅ Assistant started. Watching for board changes...")
-        last_fen = None
 
+        self.is_playing_as_black = 'y' in input("Are you playing as Black (board is flipped)? [y/N]: ").lower()
+
+        print("\n✅ Assistant ready. Please set up the board to the starting position of your game.")
+        input("--> Press ENTER when the starting position is on the screen...")
+        
+        initial_fen_pieces = self._image_to_fen_pieces()
+        if not self._validate_fen(initial_fen_pieces):
+            print(f"⚠️ Could not recognize a valid initial board. Detected: {initial_fen_pieces}")
+            print("This is a CALIBRATION issue. Try adjusting CONFIDENCE_THRESHOLD at the top of the script and restart.")
+            return
+            
+        self.internal_board = chess.Board(initial_fen_pieces)
+        print(f"✅ Initial position recognized: {initial_fen_pieces}")
+
+        # --- NEW LOGIC TO SUGGEST THE FIRST MOVE ---
+        if not self.is_playing_as_black and self.internal_board.turn == chess.WHITE:
+            print("\n" + "="*70)
+            print("It's your turn to move (White). Analyzing opening move...")
+            best_move, top_moves_str = self._get_best_move()
+            if best_move:
+                print(f"♟️ Best Opening Move: {best_move}")
+                print(f"📊 Top Moves: {top_moves_str}")
+            print("="*70)
+        # -------------------------------------------
+
+        print("\nWatching for moves...")
+        
         try:
             while True:
-                current_fen = self._image_to_fen_pieces()
-                if current_fen and current_fen != last_fen:
+                time.sleep(self.config['CAPTURE_INTERVAL'])
+                current_fen_pieces = self._image_to_fen_pieces()
+                
+                if current_fen_pieces and current_fen_pieces != self.internal_board.fen().split(' ')[0]:
                     print("\n" + "="*70)
-                    print(f"✅ New Position Detected: {current_fen}")
-                    
-                    if not self._validate_fen(current_fen):
-                        logging.warning(f"Invalid board state recognized. Missing King(s).")
-                        print("⚠️ Invalid board state recognized. Please adjust CONFIDENCE_THRESHOLD.")
-                        last_fen = current_fen
+                    logging.info("Change detected. Analyzing...")
+                    if not self._validate_fen(current_fen_pieces):
+                        logging.warning(f"Bad recognition detected: {current_fen_pieces}. Waiting for clearer view.")
                         continue
 
-                    turn_input = input("Whose turn is it to move? [white/black]: ").lower()
-                    turn_char = 'b' if 'b' in turn_input else 'w'
-                    
-                    print("Analyzing...")
-                    best_move, top_moves_str = self._get_best_move(current_fen, turn_char)
-                    
-                    print(f"♟️ Best Move: {best_move}")
-                    print(f"📊 Top Moves: {top_moves_str}")
+                    move_played = self._find_played_move(current_fen_pieces)
+                    if move_played:
+                        self.internal_board.push(move_played)
+                        print(f"✅ Move Detected: {move_played.uci()}")
+                        is_my_turn = (not self.is_playing_as_black and self.internal_board.turn == chess.WHITE) or \
+                                     (self.is_playing_as_black and self.internal_board.turn == chess.BLACK)
+                        if is_my_turn:
+                            print("Analyzing for your best move...")
+                            best_move, top_moves_str = self._get_best_move()
+                            if best_move:
+                                print(f"♟️ Best Move: {best_move}")
+                                print(f"📊 Top Moves: {top_moves_str}")
+                            else:
+                                print(f"⚠️ Could not retrieve analysis. Reason: {top_moves_str}")
+                        else:
+                            print("Opponent is thinking...")
+                    else:
+                        print("⚠️ Could not determine last move. Re-synchronizing.")
+                        self.internal_board.set_fen(current_fen_pieces)
                     print("="*70)
-                    last_fen = current_fen
-                time.sleep(self.config['CAPTURE_INTERVAL'])
         except KeyboardInterrupt:
             print("\nProgram stopped by user.")
         finally:
